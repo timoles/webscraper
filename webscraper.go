@@ -1,12 +1,14 @@
 package main
 
 import (
-"fmt"
+	"fmt"
 
-"log"
-"net/http"
-"os"
+	"log"
+	"net/http"
+	"os"
 	"strings"
+	"io/ioutil"
+	"io"
 )
 
 func main() {
@@ -22,45 +24,36 @@ func main() {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.Mkdir(path, os.ModePerm)
 	}
-	attachment := 1
-	for i := 999; i < 1001; i++ {
-
-		attachment += i
-	}
-	url = "https://www.zerodayinitiative.com/advisories/ZDI-17-%03v/"
-	//number := strconv.Itoa(0)
-	//number += strconv.Itoa(0)
-	//number += strconv.Itoa(1)
-
-	url = fmt.Sprintf(url,001)
-	//url =  fmt.Sprintf(url, number)
-	fmt.Println(url)
-	return
-
-
-	//fmt.Println(url[len(url)-5 :])
-	//fmt.Println(strings.Count(url, "/"))
-	index := strings.LastIndex(url[:len(url)-1], "/")
-	responseIndex := url[index:]
-	responseIndex = strings.Replace(responseIndex, "/","",-1) //-1 unlimited replacements
-	fmt.Println(responseIndex)
-	response, err := http.Get(url)
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		f, err := os.Create(path + responseIndex + ".html")
-		defer f.Close()
-		defer response.Body.Close()
-		response.Write(f)
+	urlEdited := ""
+	missingCount := 0
+	for i := 8000; i <8002 && missingCount < 2; i++ { // TODO multi threaded
+		urlEdited = fmt.Sprintf(url, i)
+		fmt.Println(urlEdited)
+		response, err := http.Get(urlEdited)
 		if err != nil {
 			log.Fatal(err)
+		} else {
+			responseData, err := ioutil.ReadAll(response.Body)
+			responseDataString := string(responseData)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if strings.Contains(responseDataString, "advisories-details") { // TODO make real xml parser and only write important tags
+				missingCount = 0
+				index := strings.LastIndex(urlEdited[:len(urlEdited)-1], "/")
+				responseIndex := urlEdited[index:]
+				responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
+				f, err := os.Create(path + responseIndex + ".html")
+				io.WriteString(f, responseDataString)
+				if err != nil {
+					log.Fatal(err)
+				}
+				f.Close()
+			} else {
+				missingCount++
+			}
 		}
+		response.Body.Close()
 	}
 
 }
-
-
-
-
-
-
