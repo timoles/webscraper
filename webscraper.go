@@ -26,34 +26,43 @@ func main() {
 	}
 	urlEdited := ""
 	missingCount := 0
-	for i := 8000; i <8002 && missingCount < 2; i++ { // TODO multi threaded
+	responseDataStringOld := ""
+	for i := 1010; i < 1020 && missingCount < 2; i++ { // TODO multi threaded
 		urlEdited = fmt.Sprintf(url, i)
-		fmt.Println(urlEdited)
+
 		response, err := http.Get(urlEdited)
-		if err != nil {
-			log.Fatal(err)
+		if response.Status != "200" {
+			fmt.Println("Unknown Status: " + response.Status + " " + urlEdited)
 		} else {
-			responseData, err := ioutil.ReadAll(response.Body)
-			responseDataString := string(responseData)
+
 			if err != nil {
 				log.Fatal(err)
-			}
-			if strings.Contains(responseDataString, "advisories-details") { // TODO make real xml parser and only write important tags
-				missingCount = 0
-				index := strings.LastIndex(urlEdited[:len(urlEdited)-1], "/")
-				responseIndex := urlEdited[index:]
-				responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
-				f, err := os.Create(path + responseIndex + ".html")
-				io.WriteString(f, responseDataString)
+			} else {
+				responseData, err := ioutil.ReadAll(response.Body)
+				responseDataString := string(responseData)
 				if err != nil {
 					log.Fatal(err)
 				}
-				f.Close()
-			} else {
-				missingCount++
+				if strings.Contains(responseDataString, "advisories-details") && !(responseDataStringOld == responseDataString) { // TODO make real xml parser and only write important tags
+					fmt.Println("Writing: " + urlEdited)
+					missingCount = 0
+					index := strings.LastIndex(urlEdited[:len(urlEdited)-1], "/")
+					responseIndex := urlEdited[index:]
+					responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
+					f, err := os.Create(path + responseIndex + ".html")
+					io.WriteString(f, responseDataString)
+					if err != nil {
+						log.Fatal(err)
+					}
+					f.Close()
+				} else {
+					fmt.Println("Duplicate/not expected: " + urlEdited)
+					missingCount++
+				}
+				responseDataStringOld = responseDataString
 			}
+			response.Body.Close()
 		}
-		response.Body.Close()
 	}
 
 }
