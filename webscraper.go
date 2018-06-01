@@ -10,9 +10,18 @@ import (
 	"io/ioutil"
 	"io"
 	"sync"
+	"encoding/json"
 )
 
-var path = "./responses/"
+type Config struct{
+	Threads int
+	ResponseFilePath string
+}
+
+var configPath string = "./config.conf"
+var config Config
+
+
 
 func main() {
 	//https://www.zerodayinitiative.com/advisories/ZDI-17-001/
@@ -23,16 +32,26 @@ func main() {
 	}
 	url := os.Args[1]
 	//url = "127.0.0.1/%d"
-	// Create directory into which we will save the responses
-
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		os.Mkdir(path, os.ModePerm)
+	f, err := ioutil.ReadFile(configPath)
+	// TODO make function for error handling
+	if err != nil{
+		fmt.Println("Config file not found exiting...")
+		os.Exit(1)
 	}
+	configJson := string(f)
+
+	json.Unmarshal([]byte(configJson), &config)
+
+	// Create directory into which we will save the responses
+	if _, err := os.Stat(config.ResponseFilePath); os.IsNotExist(err) {
+		os.Mkdir(config.ResponseFilePath, os.ModePerm)
+	}
+
 	var wg sync.WaitGroup
 
 	queryResponseChannel := make(chan bool, 3)
-	//for i := 1010; i < 1015 && missingCount < 2; i++ { // TODO multi threaded
-	for i := 1010; i < 1015; i++ { // TODO multi threaded
+	//for i := 1010; i < 1015 && missingCount < 2; i++ {
+	for i := 0; i < 10; i++ {
 		//missingCount := 0
 		wg.Add(1)
 		go querySite(queryResponseChannel, &wg, url, i)
@@ -40,7 +59,7 @@ func main() {
 	//<-queryResponseChannel
 	wg.Wait()
 	close(queryResponseChannel)
-	
+
 }
 
 func querySite(queryResponseChannel chan<- bool, wg *sync.WaitGroup, queryUrl string, i int) {
@@ -79,6 +98,7 @@ func querySite(queryResponseChannel chan<- bool, wg *sync.WaitGroup, queryUrl st
 		log.Fatal(err)
 	}
 	go writeToDisk(responseDataString, urlEdited)
+
 	//queryResponseChannel <- true
 }
 
@@ -88,7 +108,7 @@ func writeToDiskGo(writeChannel chan<- bool, responseBodyString, queryUrlEdited 
 	responseIndex := queryUrlEdited[index:]
 	responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
 
-	f, err := os.Create(path + responseIndex + ".html")
+	f, err := os.Create(config.ResponseFilePath + responseIndex + ".html")
 	defer f.Close()
 	io.WriteString(f, responseBodyString)
 	if err != nil {
@@ -102,7 +122,7 @@ func writeToDisk(responseBodyString, queryUrlEdited string) {
 	responseIndex := queryUrlEdited[index:]
 	responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
 
-	f, err := os.Create(path + responseIndex + ".html")
+	f, err := os.Create(config.ResponseFilePath + responseIndex + ".html")
 	defer f.Close()
 	io.WriteString(f, responseBodyString)
 	if err != nil {
