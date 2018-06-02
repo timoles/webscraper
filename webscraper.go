@@ -18,13 +18,75 @@ type Config struct{
 	ResponseFilePath string
 }
 
+type Node struct{
+	Value string
+	Left *Node
+	Right *Node
+}
+
+func compareUrl1Smaller(url1 string, url2 string) bool{
+	url1 = strings.ToLower(url1) // TODO case sensitive
+	url2 = strings.ToLower(url2)
+	var length int
+	if len(url1) < len(url2){
+		length = len(url1)
+	}else{
+		length = len(url2)
+	}
+	if length <=0{
+		return false
+	}
+	for i := 0; i < length; i++{
+		if url1[i]>url2[i]{
+			return false
+		}
+	}
+	return true
+}
+func insert(current *Node, value string) (bool, *Node){
+	duplicate := true
+	if current == nil{
+		return false, &Node{value,nil,nil}
+	}else if current.Value == value{
+		return true,current
+	}
+	if compareUrl1Smaller(value, current.Value){
+		duplicate, current.Left = insert(current.Left,value)
+	}else{
+		duplicate, current.Right = insert(current.Right,value)
+	}
+
+	return duplicate, current // TODO
+}
+
+// To string taken from https://github.com/golang/tour/blob/master/tree/tree.go#L20
+func (t *Node) String() string {
+	if t == nil {
+		return "()"
+	}
+	s := ""
+	if t.Left != nil {
+		s += t.Left.String() + " "
+	}
+	s += fmt.Sprint(t.Value)
+	if t.Right != nil {
+		s += " " + t.Right.String()
+	}
+	return "(" + s + ")"
+}
+
 var configPath string = "./config.conf"
 var config Config
 
 
 
 func main() {
-	//https://www.zerodayinitiative.com/advisories/ZDI-17-001/
+	// TODO check if correct tree
+	// Todo evtl balanced binary tree, but dont think thats that great with spidering data set
+	anchor := &Node{"",nil,nil}
+	fmt.Println(anchor.String())
+	return
+	//https://www.zerodayinitiative.com/advisories/ZDI-17-%03v/
 	// Check args
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s URL\n", os.Args[0])
