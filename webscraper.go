@@ -11,11 +11,16 @@ import (
 	"io"
 	"sync"
 	"encoding/json"
+	"time"
+)
+import (
+	"github.com/goware/urlx"
 )
 
 type Config struct{
 	Threads int
 	ResponseFilePath string
+	Keyword string
 }
 
 type Node struct{
@@ -24,6 +29,172 @@ type Node struct{
 	Right *Node
 }
 
+
+
+
+var configPath string = "./config.conf"
+var config = &Config{1, "hi", "du"}
+
+func main() {
+	// TODO checken wie es mit Datenbanklösungen aussieht
+	// TODO check if correct tree
+	// Todo evtl balanced binary tree, but dont think thats that great with spidering data set
+	// TODO way better error handling
+
+	// anchor := &Node{"",nil,nil}
+	// fmt.Println(anchor.String())
+
+	//https://www.zerodayinitiative.com/advisories/ZDI-17-%03v/
+	// Check args
+	if len(os.Args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s URL\n", os.Args[0])
+		os.Exit(1)
+	}
+	url := os.Args[1]
+
+	url = "https://www.swisscom.ch/de/privatkunden.html" // TODO
+	// url = "https://www.zerodayinitiative.com/advisories/ZDI-18-1000/"
+
+	//url = "127.0.0.1/%d"
+	f, err := ioutil.ReadFile(configPath)
+	if err != nil{
+		fmt.Println("Config file not found exiting...")
+		log.Fatal(err)
+	}
+	configJson := string(f)
+	err = json.Unmarshal([]byte(configJson), &config)
+	if  err != nil{
+		fmt.Println("Config file Error exiting...")
+		log.Fatal(err)
+	}
+	fmt.Println(config.Threads)
+	// Create directory into which we will save the responses
+	if _, err := os.Stat(config.ResponseFilePath); os.IsNotExist(err) {
+		os.Mkdir(config.ResponseFilePath, os.ModePerm)
+	}
+
+	var wg sync.WaitGroup
+	var client = &http.Client{Timeout: time.Second * 10,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		} } // TODO need client for every single query? prob not?
+	// TODO check all client options UserAgent etc...
+	queryResponseChannel := make(chan bool, 3)
+	//for i := 1010; i < 1015 && missingCount < 2; i++ {
+	for i := 0; i < 1; i++ {
+		//missingCount := 0
+		wg.Add(2) // Add 2 one for query and one for writing
+		go querySite(queryResponseChannel, &wg, url, i,client)
+
+	}
+	//<-queryResponseChannel
+	wg.Wait()
+	close(queryResponseChannel)
+
+}
+
+func querySite(queryResponseChannel chan<- bool, wg *sync.WaitGroup, queryUrl string, i int, client *http.Client) {
+	defer wg.Done()
+	// Response
+	fmt.Println()
+	fmt.Println("Sende Request für: " + queryUrl)
+
+	response, err := client.Get(queryUrl)
+	responseDataString := ""
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	if response == nil {
+		fmt.Println(" Response nil, error")
+		return
+	}
+	if response.Status != "200 OK" {
+		fmt.Println(" Unknown Status: " + response.Status + " " + queryUrl)
+	} else {
+		responseData, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+		responseDataString = string(responseData)
+		response.Body.Close()
+
+		queryForUrls(responseDataString,config.Keyword )
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	if responseDataString != ""{
+		go writeToDisk(responseDataString, queryUrl, wg) // TODO check if das schon so richtig schnellstmöglich ausführt oder immer zuerst querys und dann schreibe
+	}else {
+		wg.Done() // Done because writing cant do it
+	}
+	//queryResponseChannel <- true
+}
+func queryForUrls(responseData string, keyword string){ // TODO multiple keywords
+	//fmt.Println("Query Data with keyword: " + keyword)
+	leadingIdentifier := "https://"
+	trailingIdentifier := ".html" // TODO shitty identifier
+	indexKeyword := strings.Index(responseData, keyword)
+	globalDocIndex := 0
+	//fmt.Println(indexKeyword)
+	indexLeadingIdentifier := -1
+	indexTrailingIdentifier := -1
+	for ; indexKeyword != -1;{
+		//fmt.Println("Found keyword occurence at Index: " ,indexKeyword)
+		//fmt.Println(responseData[indexKeyword:])
+		indexLeadingIdentifier = strings.LastIndex(responseData[:indexKeyword+len(keyword)], leadingIdentifier)
+		indexTrailingIdentifier = strings.Index(responseData[indexKeyword:], trailingIdentifier) + indexKeyword // TODO shitty identifier
+		if indexLeadingIdentifier != -1 && indexTrailingIdentifier != -1{
+			//fmt.Println(responseData)
+			//fmt.Println(indexLeadingIdentifier, " " , indexTrailingIdentifier)
+			//fmt.Println("Occurance was valid")
+			uriToCheck := responseData[indexLeadingIdentifier:indexTrailingIdentifier]
+
+			if isValidUri(uriToCheck){
+				//fmt.Println("Valid Uri found: " + uriToCheck)
+				fmt.Println("TODO") // TODO
+			}
+		}
+		globalDocIndex += indexTrailingIdentifier-len(trailingIdentifier)
+		indexKeyword = strings.Index(responseData[globalDocIndex:], keyword)
+		// TODO href="//tags.tiqcdn.com
+		// and prob many more
+	}
+	fmt.Println("Query done")
+}
+
+func isValidUri(toCheck string)bool{
+	//fmt.Println("------------------------------")
+	//fmt.Println(toCheck)
+	//_, err := url.ParseRequestURI(toCheck)
+	url , err := urlx.Parse(toCheck)
+	fmt.Println(url)
+	// fmt.Println(reflect.TypeOf(url))
+	// normalized, _ := urlx.Normalize(url)
+	// fmt.Println(normalized)
+	if err != nil {
+		return false
+	} else {
+		return true
+	}
+}
+
+func writeToDisk(responseBodyString, queryUrlEdited string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	fmt.Println("Schreibe Datei für; " + queryUrlEdited)
+	index := strings.LastIndex(queryUrlEdited[:len(queryUrlEdited)-1], "/")
+	responseIndex := queryUrlEdited[index:]
+	responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
+
+	f, err := os.Create(config.ResponseFilePath + responseIndex + ".html")
+	defer f.Close()
+	io.WriteString(f, responseBodyString)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 func compareUrl1Smaller(url1 string, url2 string) bool{
 	url1 = strings.ToLower(url1) // TODO case sensitive
 	url2 = strings.ToLower(url2)
@@ -43,6 +214,8 @@ func compareUrl1Smaller(url1 string, url2 string) bool{
 	}
 	return true
 }
+
+// Binary Tree
 func insert(current *Node, value string) (bool, *Node){
 	duplicate := true
 	if current == nil{
@@ -74,120 +247,4 @@ func (t *Node) String() string {
 	}
 	return "(" + s + ")"
 }
-
-var configPath string = "./config.conf"
-var config Config
-
-
-
-func main() {
-	// TODO check if correct tree
-	// Todo evtl balanced binary tree, but dont think thats that great with spidering data set
-	anchor := &Node{"",nil,nil}
-	fmt.Println(anchor.String())
-	return
-	//https://www.zerodayinitiative.com/advisories/ZDI-17-%03v/
-	// Check args
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s URL\n", os.Args[0])
-		os.Exit(1)
-	}
-	url := os.Args[1]
-	//url = "127.0.0.1/%d"
-	f, err := ioutil.ReadFile(configPath)
-	// TODO make function for error handling
-	if err != nil{
-		fmt.Println("Config file not found exiting...")
-		os.Exit(1)
-	}
-	configJson := string(f)
-
-	json.Unmarshal([]byte(configJson), &config)
-
-	// Create directory into which we will save the responses
-	if _, err := os.Stat(config.ResponseFilePath); os.IsNotExist(err) {
-		os.Mkdir(config.ResponseFilePath, os.ModePerm)
-	}
-
-	var wg sync.WaitGroup
-
-	queryResponseChannel := make(chan bool, 3)
-	//for i := 1010; i < 1015 && missingCount < 2; i++ {
-	for i := 0; i < 10; i++ {
-		//missingCount := 0
-		wg.Add(1)
-		go querySite(queryResponseChannel, &wg, url, i)
-	}
-	//<-queryResponseChannel
-	wg.Wait()
-	close(queryResponseChannel)
-
-}
-
-func querySite(queryResponseChannel chan<- bool, wg *sync.WaitGroup, queryUrl string, i int) {
-	defer wg.Done()
-	urlEdited := fmt.Sprintf(queryUrl, i)
-	fmt.Println("Sende Request für: " + urlEdited)
-	response, err := http.Get(urlEdited)
-	responseDataString := ""
-	if response == nil {
-		fmt.Println("Response nil, error")
-		return
-	}
-	if response.Status != "200 OK" {
-		fmt.Println("Unknown Status: " + response.Status + " " + urlEdited)
-	} else {
-		responseData, err := ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-		responseDataString = string(responseData)
-
-		//if strings.Contains(responseDataString, "advisories-details") && !(responseDataStringOld == responseDataString) { // TODO make real xml parser and only write important tags
-		if strings.Contains(responseDataString, "advisories-details") { // TODO make real xml parser and only write important tags
-			fmt.Println("Writing: " + urlEdited)
-
-		} else {
-			fmt.Println("Duplicate/not expected: " + urlEdited)
-
-		}
-		//responseDataStringOld = responseDataString
-
-		response.Body.Close()
-	}
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	go writeToDisk(responseDataString, urlEdited)
-
-	//queryResponseChannel <- true
-}
-
-func writeToDiskGo(writeChannel chan<- bool, responseBodyString, queryUrlEdited string) {
-	fmt.Println("Schreibe Datei für; " + queryUrlEdited)
-	index := strings.LastIndex(queryUrlEdited[:len(queryUrlEdited)-1], "/")
-	responseIndex := queryUrlEdited[index:]
-	responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
-
-	f, err := os.Create(config.ResponseFilePath + responseIndex + ".html")
-	defer f.Close()
-	io.WriteString(f, responseBodyString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	writeChannel <- true
-}
-func writeToDisk(responseBodyString, queryUrlEdited string) {
-	fmt.Println("Schreibe Datei für; " + queryUrlEdited)
-	index := strings.LastIndex(queryUrlEdited[:len(queryUrlEdited)-1], "/")
-	responseIndex := queryUrlEdited[index:]
-	responseIndex = strings.Replace(responseIndex, "/", "", -1) //-1 unlimited replacements
-
-	f, err := os.Create(config.ResponseFilePath + responseIndex + ".html")
-	defer f.Close()
-	io.WriteString(f, responseBodyString)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
+//Binar Tree end
